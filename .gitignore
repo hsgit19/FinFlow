@@ -1,0 +1,8 @@
+.env
+venv/
+__pycache__/
+*.zip
+Data/
+desktop.ini
+*.pyc
+.ipynb_checkpoints/
