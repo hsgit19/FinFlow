@@ -1,0 +1,48 @@
+name: Deploy FinFlow to EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: finflow
+          IMAGE_TAG: latest
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+            aws ecr get-login-password --region us-east-1 | sudo docker login --username AWS --password-stdin 152125349659.dkr.ecr.us-east-1.amazonaws.com
+            sudo docker pull 152125349659.dkr.ecr.us-east-1.amazonaws.com/finflow:latest
+            sudo docker ps -q --filter ancestor=152125349659.dkr.ecr.us-east-1.amazonaws.com/finflow:latest | xargs -r sudo docker stop
+            sudo docker ps -aq --filter ancestor=152125349659.dkr.ecr.us-east-1.amazonaws.com/finflow:latest | xargs -r sudo docker rm
+            sudo docker run -d --network host --restart unless-stopped 152125349659.dkr.ecr.us-east-1.amazonaws.com/finflow:latest
