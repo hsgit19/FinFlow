@@ -66,11 +66,11 @@ st.markdown("""
 # ============================================================
 @st.cache_data
 def load_data():
-    bw = pd.read_csv('../Data/processed/budgetwise_usd_converted.csv',
+    bw = pd.read_csv('Data/processed/budgetwise_usd_converted.csv',
                      parse_dates=['date'])
-    fraud = pd.read_csv('../Data/processed/fraud_train_cleaned.csv',
+    fraud = pd.read_csv('Data/processed/fraud_train_cleaned.csv',
                         parse_dates=['date'])
-    forecast = pd.read_csv('../Data/processed/spending_forecast.csv',
+    forecast = pd.read_csv('Data/processed/spending_forecast.csv',
                            parse_dates=['ds'])
     return bw, fraud, forecast
 
