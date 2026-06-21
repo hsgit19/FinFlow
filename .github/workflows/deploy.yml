@@ -40,9 +40,8 @@ jobs:
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
             aws ecr get-login-password --region us-east-1 | sudo docker login --username AWS --password-stdin 152125349659.dkr.ecr.us-east-1.amazonaws.com
             sudo docker pull 152125349659.dkr.ecr.us-east-1.amazonaws.com/finflow:latest
             sudo docker ps -q --filter ancestor=152125349659.dkr.ecr.us-east-1.amazonaws.com/finflow:latest | xargs -r sudo docker stop
             sudo docker ps -aq --filter ancestor=152125349659.dkr.ecr.us-east-1.amazonaws.com/finflow:latest | xargs -r sudo docker rm
-            sudo docker run -d --network host --restart unless-stopped 152125349659.dkr.ecr.us-east-1.amazonaws.com/finflow:latest
+            sudo docker run -d --network host --restart unless-stopped -v /home/ec2-user/FinFlow/Data/processed:/app/Data/processed 152125349659.dkr.ecr.us-east-1.amazonaws.com/finflow:latest

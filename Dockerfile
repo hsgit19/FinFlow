@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy all project files into the container
 COPY dashboard/ ./dashboard/
 COPY src/ ./src/
-COPY Data/processed/ ./Data/processed/
+
 
 # Expose port 8501 for Streamlit
 EXPOSE 8501
