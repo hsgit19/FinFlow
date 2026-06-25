@@ -80,7 +80,7 @@ def load_data():
     fraud = read_csv_from_s3('fraud_train_cleaned.csv', parse_dates=['date'])
     forecast = read_csv_from_s3('spending_forecast.csv', parse_dates=['ds'])
     return bw, fraud, forecast
-
+bw, fraud, forecast = load_data()
 # ============================================================
 # SIDEBAR
 # ============================================================
