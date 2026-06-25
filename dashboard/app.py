@@ -66,18 +66,20 @@ st.markdown("""
 # ============================================================
 @st.cache_data
 def load_data():
-    bw = pd.read_csv('Data/processed/budgetwise_usd_converted.csv',
-                     parse_dates=['date'])
-    fraud = pd.read_csv('Data/processed/fraud_train_cleaned.csv',
-                        parse_dates=['date'])
-    forecast = pd.read_csv('Data/processed/spending_forecast.csv',
-                           parse_dates=['ds'])
+    import boto3
+    from io import StringIO
+
+    s3 = boto3.client('s3', region_name='us-east-1')
+    bucket = 'finflow-data-152125349659'
+
+    def read_csv_from_s3(key, parse_dates=None):
+        obj = s3.get_object(Bucket=bucket, Key=key)
+        return pd.read_csv(obj['Body'], parse_dates=parse_dates)
+
+    bw = read_csv_from_s3('budgetwise_usd_converted.csv', parse_dates=['date'])
+    fraud = read_csv_from_s3('fraud_train_cleaned.csv', parse_dates=['date'])
+    forecast = read_csv_from_s3('spending_forecast.csv', parse_dates=['ds'])
     return bw, fraud, forecast
-
-bw, fraud, forecast = load_data()
-
-expenses = bw[bw['transaction_type'] == 'Expense'].copy()
-income = bw[bw['transaction_type'] == 'Income'].copy()
 
 # ============================================================
 # SIDEBAR
