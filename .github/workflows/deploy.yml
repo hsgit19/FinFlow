@@ -42,6 +42,7 @@ jobs:
           script: |
             aws ecr get-login-password --region us-east-1 | sudo docker login --username AWS --password-stdin 152125349659.dkr.ecr.us-east-1.amazonaws.com
             sudo docker pull 152125349659.dkr.ecr.us-east-1.amazonaws.com/finflow:latest
-            sudo docker ps -q --filter ancestor=152125349659.dkr.ecr.us-east-1.amazonaws.com/finflow:latest | xargs -r sudo docker stop
-            sudo docker ps -aq --filter ancestor=152125349659.dkr.ecr.us-east-1.amazonaws.com/finflow:latest | xargs -r sudo docker rm
+            sudo docker system prune -af --filter "until=24h"
+            sudo docker stop $(sudo docker ps -aq) 2>/dev/null || true
+            sudo docker rm $(sudo docker ps -aq) 2>/dev/null || true
             sudo docker run -d --network host --restart unless-stopped 152125349659.dkr.ecr.us-east-1.amazonaws.com/finflow:latest
