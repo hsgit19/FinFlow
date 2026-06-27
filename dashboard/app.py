@@ -81,6 +81,9 @@ def load_data():
     forecast = read_csv_from_s3('spending_forecast.csv', parse_dates=['ds'])
     return bw, fraud, forecast
 bw, fraud, forecast = load_data()
+
+expenses = bw[bw['transaction_type'] == 'Expense'].copy()
+income = bw[bw['transaction_type'] == 'Income'].copy()
 # ============================================================
 # SIDEBAR
 # ============================================================
