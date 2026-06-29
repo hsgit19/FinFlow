@@ -16,7 +16,7 @@ RDS_HOST = 'database-1.c8t4u68s25xa.us-east-1.rds.amazonaws.com'
 RDS_PORT = 5432
 RDS_DB = 'finflow'
 RDS_USER = 'postgres'
-RDS_PASSWORD = os.environ.get('FinflowRDS') 
+RDS_PASSWORD = os.environ.get('myFinflowRDS') 
 
 if not RDS_PASSWORD:
     raise ValueError("RDS_PASSWORD environment variable is not set")
