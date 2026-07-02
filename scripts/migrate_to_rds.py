@@ -31,7 +31,7 @@ def main():
     print("Connecting to RDS...")
     conn = psycopg2.connect(
         host=RDS_HOST, port=RDS_PORT, dbname=RDS_DB,
-        user=RDS_USER, password=RDS_PASSWORD
+        user=RDS_USER, password=RDS_PASSWORD, sslmode='require'
     )
     cur = conn.cursor()
 
