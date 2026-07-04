@@ -45,4 +45,4 @@ jobs:
             sudo docker system prune -af --filter "until=24h"
             sudo docker stop $(sudo docker ps -aq) 2>/dev/null || true
             sudo docker rm $(sudo docker ps -aq) 2>/dev/null || true
-            sudo docker run -d --network host --restart unless-stopped 152125349659.dkr.ecr.us-east-1.amazonaws.com/finflow:latest
+            sudo docker run -d --network host --restart unless-stopped -e RDS_PASSWORD="${{ secrets.RDS_PASSWORD }}" 152125349659.dkr.ecr.us-east-1.amazonaws.com/finflow:latest
