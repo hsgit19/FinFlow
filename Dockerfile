@@ -8,6 +8,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install all Python packages
+RUN apt-get update && apt-get install -y libgomp1 && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy all project files into the container
