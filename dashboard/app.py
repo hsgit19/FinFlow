@@ -11,6 +11,7 @@ import boto3
 import json
 import os
 import sys
+import requests
 from dotenv import load_dotenv
 
 load_dotenv('../.env')
@@ -98,7 +99,7 @@ st.sidebar.markdown("""
 st.sidebar.title("Navigation")
 page = st.sidebar.radio(
     "Go to",
-    ["Spending Overview", "Fraud Detection", "AI Insights", "Forecasting"]
+    ["Spending Overview", "Fraud Detection", "AI Insights", "Forecasting", "Ask FinFlow"]
 )
 
 st.sidebar.markdown("---")
@@ -514,4 +515,60 @@ elif page == "Forecasting":
                       yaxis_title='Trend value ($)',
                       margin=dict(l=0, r=0, t=0, b=0))
     st.plotly_chart(fig, use_container_width=True)
+    # ============================================================
+# PAGE 5 - ASK FINFLOW (RAG CHAT)
+# ============================================================
+elif page == "Ask FinFlow":
+    st.title("💬 Ask FinFlow")
+    st.markdown("Ask questions about your spending patterns, grounded in real transaction data and AI-generated insights.")
+
+    API_URL = "http://35.171.107.227:8000"
+
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+
+    for message in st.session_state.chat_history:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+            if "sources" in message:
+                with st.expander("📄 View sources used"):
+                    for source in message["sources"]:
+                        st.markdown(f"**[{source['type']}]** _{source['similarity']:.3f} match_")
+                        st.markdown(f"> {source['text']}")
+
+    user_question = st.chat_input("Ask a question about your finances...")
+
+    if user_question:
+        st.session_state.chat_history.append({"role": "user", "content": user_question})
+        with st.chat_message("user"):
+            st.markdown(user_question)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                try:
+                    response = requests.post(
+                        f"{API_URL}/ask",
+                        json={"question": user_question},
+                        timeout=30
+                    )
+                    response.raise_for_status()
+                    result = response.json()
+
+                    st.markdown(result["answer"])
+
+                    with st.expander("📄 View sources used"):
+                        for source in result["sources"]:
+                            st.markdown(f"**[{source['type']}]** _{source['similarity']:.3f} match_")
+                            st.markdown(f"> {source['text']}")
+
+                    st.session_state.chat_history.append({
+                        "role": "assistant",
+                        "content": result["answer"],
+                        "sources": result["sources"]
+                    })
+
+                except requests.exceptions.RequestException as e:
+                    error_msg = f"Sorry, I couldn't reach the FinFlow API: {e}"
+                    st.error(error_msg)
+                    st.session_state.chat_history.append({"role": "assistant", "content": error_msg})
     
