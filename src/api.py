@@ -1,7 +1,7 @@
 """
 src/api.py
 FinFlow FastAPI — ML model serving API
-Exposes fraud detection, forecasting, and summary endpoints
+Exposes fraud detection, forecasting, summary, and RAG-based Q&A endpoints
 """
 
 import os
@@ -21,9 +21,9 @@ from pydantic import BaseModel
 
 import psycopg2
 
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────
 # Configuration
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────
 S3_BUCKET   = "finflow-data-152125349659"
 RDS_HOST    = "database-1.c8t4u68s25xa.us-east-1.rds.amazonaws.com"
 RDS_PORT    = 5432
@@ -31,9 +31,13 @@ RDS_DB      = "finflow"
 RDS_USER    = "postgres"
 RDS_PASSWORD = os.environ.get("RDS_PASSWORD")
 
-# ─────────────────────────────────────────────
+EMBED_MODEL_ID = "amazon.titan-embed-text-v2:0"
+CHAT_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+bedrock_runtime = boto3.client("bedrock-runtime", region_name="us-east-1")
+
+# ─────────────────────────────────────────────────
 # Model store (loaded once at startup)
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────
 models = {}
 
 def load_models():
@@ -47,18 +51,18 @@ def load_models():
         models["feature_cols"] = pickle.load(f)
     print("✅ Models loaded successfully")
 
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────
 # Lifespan — runs on startup and shutdown
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_models()
     yield
     print("API shutting down")
 
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────
 # App
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────
 app = FastAPI(
     title="FinFlow API",
     description="ML model serving API for FinFlow personal finance intelligence",
@@ -73,9 +77,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────
 # Request / Response schemas
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────
 class FraudRequest(BaseModel):
     amount: float
     category: str
@@ -103,9 +107,22 @@ class SummaryResponse(BaseModel):
     date_range_end: str
     source: str = "RDS PostgreSQL"
 
-# ─────────────────────────────────────────────
+class AskRequest(BaseModel):
+    question: str
+
+class SourceChunk(BaseModel):
+    type: str
+    text: str
+    similarity: float
+
+class AskResponse(BaseModel):
+    question: str
+    answer: str
+    sources: list[SourceChunk]
+
+# ─────────────────────────────────────────────────
 # Helper functions
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────
 def get_rds_connection():
     """Return a live psycopg2 connection to RDS."""
     if not RDS_PASSWORD:
@@ -121,9 +138,61 @@ def read_s3_csv(key: str, parse_dates=None) -> pd.DataFrame:
     obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
     return pd.read_csv(obj["Body"], parse_dates=parse_dates)
 
-# ─────────────────────────────────────────────
+def get_embedding(text: str) -> list:
+    """Convert text into a 1024-dim embedding using Bedrock Titan."""
+    body = json.dumps({"inputText": text})
+    response = bedrock_runtime.invoke_model(
+        modelId=EMBED_MODEL_ID, body=body,
+        contentType="application/json", accept="application/json",
+    )
+    result = json.loads(response["body"].read())
+    return result["embedding"]
+
+def retrieve_relevant_chunks(conn, query_embedding: list, top_k: int = 5) -> list:
+    """Find the top_k most similar chunks using pgvector cosine similarity."""
+    cur = conn.cursor()
+    embedding_str = str(query_embedding)
+    cur.execute(
+        """
+        SELECT content_type, content_text, 1 - (embedding <=> %s::vector) AS similarity
+        FROM finflow_embeddings
+        ORDER BY embedding <=> %s::vector
+        LIMIT %s
+        """,
+        (embedding_str, embedding_str, top_k)
+    )
+    rows = cur.fetchall()
+    cur.close()
+    return [{"type": r[0], "text": r[1], "similarity": float(r[2])} for r in rows]
+
+def generate_grounded_answer(question: str, chunks: list) -> str:
+    """Send question + retrieved context to Claude Haiku for a grounded answer."""
+    context = "\n".join([f"- {c['text']}" for c in chunks])
+    prompt = f"""You are FinFlow's financial assistant. Answer the user's question using ONLY the context below. If the context doesn't contain enough information to answer, say so honestly rather than guessing.
+
+Context:
+{context}
+
+Question: {question}
+
+Answer:"""
+
+    body = json.dumps({
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 500,
+        "messages": [{"role": "user", "content": prompt}]
+    })
+
+    response = bedrock_runtime.invoke_model(
+        modelId=CHAT_MODEL_ID, body=body,
+        contentType="application/json", accept="application/json",
+    )
+    result = json.loads(response["body"].read())
+    return result["content"][0]["text"]
+
+# ─────────────────────────────────────────────────
 # Endpoints
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────
 @app.get("/health")
 def health_check():
     """Confirms the API is running and models are loaded."""
@@ -141,21 +210,17 @@ def predict_fraud(req: FraudRequest):
     Uses the LightGBM fraud classifier trained on 1.3M transactions.
     """
     try:
-        # Encode category using the saved label encoder
         try:
             cat_encoded = models["le_cat"].transform([req.category])[0]
         except ValueError:
-            # Unknown category — use -1 as fallback
             cat_encoded = -1
 
-        # Build feature vector matching training columns
         feature_dict = {
             "amount": req.amount,
             "category_encoded": cat_encoded,
             "hour": req.hour,
         }
 
-        # Fill any remaining expected columns with 0
         row = {col: feature_dict.get(col, 0) for col in models["feature_cols"]}
         X = pd.DataFrame([row])[models["feature_cols"]]
 
@@ -189,7 +254,6 @@ def get_forecast(periods: int = 30):
         future = models["prophet"].make_future_dataframe(periods=periods)
         forecast = models["prophet"].predict(future)
 
-        # Return only future dates
         result = forecast.tail(periods)[["ds", "yhat", "yhat_lower", "yhat_upper"]]
 
         return [
@@ -245,6 +309,31 @@ def get_summary():
             top_category=top_cat,
             date_range_start=str(date_min),
             date_range_end=str(date_max)
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/ask", response_model=AskResponse)
+def ask_finflow(req: AskRequest):
+    """
+    RAG endpoint — answers a natural language question about the user's
+    financial data, grounded in stored transaction summaries and EDA insights.
+    """
+    try:
+        conn = get_rds_connection()
+
+        query_embedding = get_embedding(req.question)
+        chunks = retrieve_relevant_chunks(conn, query_embedding, top_k=5)
+        answer = generate_grounded_answer(req.question, chunks)
+
+        conn.close()
+
+        return AskResponse(
+            question=req.question,
+            answer=answer,
+            sources=[SourceChunk(type=c["type"], text=c["text"], similarity=c["similarity"]) for c in chunks]
         )
 
     except Exception as e:
